@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=300, initial-scale=1" name="viewport">
+<title>Cannot show page</title>
+<base href="{{WEB_URL}}">
+</head>
+<body>
+    <h1 class="bar warn">Cannot show page</h1>
+    <div class="main instructions">
+        <p>This page cannot be displayed.</p>
+        <p>It is possible that the file is not shared for public viewing, or is 
+            not an HTML file (Google Docs must be exported as text-based HTML files). 
+            If you are the owner, please make sure it is an HTML file shared publicly.</p>
+        <p>Need help? Contact us <a id="mailto" href="mailto:{{CONTACT_EMAIL}}">via email</a>.</p>
+    </div>
+    <div id="footnotes">
+        <div class="left">
+            Hosting provider <a href="{{WEB_URL}}" class="highlight">DriveToWeb</a>
+        </div>
+        <div class="right">
+            <div id="google_translate_element"></div>
+        </div>
+    </div>
+<noscript id="deferred-styles">
+    <link rel="stylesheet" type="text/css" href="/inc/wd.css">
+    <link rel="stylesheet" type="text/css" href="/inc/wd-s.css" media="screen and (max-width: 580px)">
+</noscript>
+<script type="text/javascript" nonce="{{CSP_NONCE}}">
+if(self!=top){
+    window.onclick = function(){window.open("{{WEB_URL}}")} ;
+    setTimeout( function(){top.location.href="{{WEB_URL}}"}, 0 ) ;
+}
+else{
+    // Load deferred styles
+    var loadDeferredStyles = function() {
+        var addStylesNode = document.getElementById("deferred-styles");
+        var replacement = document.createElement("div");
+        replacement.innerHTML = addStylesNode.textContent;
+        document.body.appendChild(replacement)
+        addStylesNode.parentElement.removeChild(addStylesNode);
+    };
+    window.addEventListener('load', loadDeferredStyles);
+    document.getElementById('mailto').setAttribute('href','mailto:{{CONTACT_EMAIL}}?subject='+encodeURIComponent('Blocked '+location.href));
+}
+function googleTranslateElementInit() {new google.translate.TranslateElement({pageLanguage: 'en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE, gaTrack: false}, 'google_translate_element');}
+</script><script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+</body>
+</html>

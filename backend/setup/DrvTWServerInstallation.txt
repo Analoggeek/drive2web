@@ -1,0 +1,209 @@
+DriveToWeb self-hosting guide  (updated for PHP 8.x; see HOW-TO-USE.md at the repo root
+for the configuration reference and the troubleshooting table)
+
+Layout assumed by everything below and by the nginx configs in this directory:
+
+    /var/www/drv_tw/html/            docroot (index.php, inline/, drvtw_private/, www.drv.tw/)
+    /var/www/drv_tw/nginx_drvtw      application server config
+    /var/www/drv_tw/nginx_proxy      caching proxy config
+    /var/www/drv_tw/nginx_drvpx      CDN-facing proxy config
+    /var/www/drv_tw/setup/           this folder (mongod/, logrotate.d/)
+
+i.e. you copy the CONTENTS of backend/ to /var/www/drv_tw, not the repository root.
+
+================================================================================
+0. Prerequisites
+================================================================================
+* Ubuntu 20.04+ (22.04 recommended), 2 vCPU / 4 GB minimum for a small instance
+* A domain whose wildcard DNS resolves: your.domain, *.your.domain, *.on.your.domain
+  (every hosted site is a subdomain, so a wildcard is not optional)
+* Microsoft Azure AD app registration (OneDrive).  Google Cloud OAuth app optional:
+  Google restricts new apps requesting Drive scopes, so a fresh install usually cannot
+  offer Google Drive sign-in.
+* SMTP credentials (site access codes, abuse notifications)
+* MongoDB 4.4+  (4.4-7.0 verified against the shipped connection code)
+
+================================================================================
+1. TLS certificates (wildcard, DNS-01)
+================================================================================
+SSL cert auto renewal by acme.sh (run on the proxy server)
+
+For your.domain, *.your.domain, and *.on.your.domain
+
+curl https://get.acme.sh | sh -s email=YOUR_EMAIL
+# Set credentials for your DNS provider - see https://github.com/acmesh-official/acme.sh/wiki/dnsapi
+# Example for Cloudflare:
+# export CF_Token="YOUR_CF_TOKEN"
+~/.acme.sh/acme.sh --server letsencrypt --issue -d 'your.domain' -d '*.your.domain' -d '*.on.your.domain' --dns dns_cf --log
+~/.acme.sh/acme.sh --install-cert -d 'your.domain' --ecc \
+    --fullchain-file /etc/ssl/d2w-fullchain.cer --key-file /etc/ssl/d2w.key \
+    --reloadcmd "service nginx reload"
+
+sudo mkdir -p /var/cache/nginx
+sudo chown www-data:www-data /var/cache/nginx/
+
+# Optional: Nginx Amplify monitoring
+# curl -sS -L -O https://github.com/nginxinc/nginx-amplify-agent/raw/master/packages/install.sh
+# API_KEY='YOUR_NGINX_AMPLIFY_API_KEY' sh ./install.sh
+
+================================================================================
+2. Nginx, PHP-FPM 8.x, PHP extensions
+================================================================================
+sudo apt install -y nginx php8.1-fpm php8.1-mongodb php8.1-mbstring php8.1-curl php8.1-dom git
+# Any PHP 8.1+ works.  Whichever you install MUST match the fastcgi_pass socket in
+# nginx_drvtw (it ships pointing at /run/php/php8.1-fpm.sock).
+
+# /etc/php/8.1/fpm/pool.d/www.conf
+pm = static
+pm.max_children = 256
+pm.max_requests = 500
+slowlog = /var/log/php/php-$pool.log.slow
+request_slowlog_timeout = 60s
+pm.status_path = /php-fpm-status
+env[D2W_LOG_FOLDER] = /var/log/d2w
+
+sudo mkdir -p /var/log/php /var/log/d2w
+sudo chown www-data:www-data /var/log/php
+sudo chown www-data:www-data /var/log/d2w
+sudo chmod 0770 /var/log/d2w
+# 0770, not 0640: a directory needs the execute bit or the web server cannot enter
+# it and every log write fails (this was a bug in the shipped logger).
+sudo service php8.1-fpm restart
+
+================================================================================
+3. DrvTW code
+================================================================================
+git clone https://github.com/YOUR_ORG/drvtw_oss.git
+sudo mkdir -p /var/www/drv_tw
+sudo cp -a drvtw_oss/backend/. /var/www/drv_tw/
+sudo chown -R YOUR_USER:www-data /var/www/drv_tw
+sudo find /var/www/drv_tw -type d -exec chmod 0750 {} \;
+# The repository copy at drvtw_oss/ is what you run tests from (tests/run-all.sh).
+
+================================================================================
+4. Credentials
+================================================================================
+cp /var/www/drv_tw/html/drvtw_private/drvtw_creds.example.php \
+   /var/www/drv_tw/html/drvtw_private/drvtw_creds.php
+sudo chmod 0640 /var/www/drv_tw/html/drvtw_private/drvtw_creds.php
+sudo chown YOUR_USER:www-data /var/www/drv_tw/html/drvtw_private/drvtw_creds.php
+
+Fill in, at minimum:
+  $d2wBaseDomain / $d2wApiHost / $d2wWebHost / $d2wContactEmail
+  $odClientId / $odClientSecret          (Azure: redirect URI https://$d2wApiHost/.b/od/
+                                           AND https://$d2wApiHost/.a/od/)
+  $gdClientId / $gdClientSecret / $gdApiKey   (only if Google approved your app;
+                                           redirect URIs as above with /.a/gd/ and /.b/gd/)
+  $mongoLocalConnection / $mongoRemoteConnections
+  $smtpHost / $smtpPort / $sesSmtpUser / $sesSmtpPassword / $mailFrom
+  $sessionSecret   = $(openssl rand -hex 32)     # signs owner session cookies
+  $opsSecret       = $(openssl rand -hex 32)     # signs the hourly operator token
+  $opsUser / $opsPass                            # HTTP basic for @@backroom / @@log.csv
+  $requireApprovedSites = TRUE                   # for anything publicly reachable
+  $authCodeMaxFails = 8, $authCodeSendGapSec = 60 # access-code limits (defaults)
+  $d2wLogPrivacy = TRUE                           # scrub e-mails/tokens from user.log
+  $mongoTlsCAFile = '/etc/ssl/mongodb-ca.pem'     # only if Mongo uses a private CA
+
+$sessionSecret must not be NULL in production: it is what makes the @@commands
+(publish/lock/unlock/dup/delete/cache) usable from the browser.  Leaving it NULL
+disables cookie auth, and those commands then require
+"Authorization: Bearer <the owner's stored access token>".
+
+================================================================================
+5. Log rotation
+================================================================================
+sudo cp /var/www/drv_tw/setup/logrotate.d/d2w /etc/logrotate.d/d2w
+sudo logrotate -d /etc/logrotate.d/d2w        # dry run
+
+================================================================================
+6. MongoDB
+================================================================================
+See https://docs.mongodb.com/manual/tutorial/install-mongodb-on-ubuntu/
+wget -qO - https://www.mongodb.org/static/pgp/server-7.0.asc | sudo apt-key add -
+echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+sudo apt-get update && sudo apt-get install -y mongodb-org
+
+sudo service mongod start
+mongo /var/www/drv_tw/setup/mongod/init.js      # creates admin + drvuser (4.4 shell)
+  # on 6.x+ use:  mongosh /var/www/drv_tw/setup/mongod/init.js
+sudo cp /var/www/drv_tw/setup/mongod/mongod.conf /etc/.
+# Generate your own cert:
+#   sudo openssl req -newkey rsa:2048 -new -x509 -days 3650 -nodes \
+#        -out /etc/ssl/mongodb.pem -keyout /etc/ssl/mongodb.pem
+# The app verifies the server certificate by default; point it at a CA you trust
+# instead of disabling verification (the shipped code disabled it).
+
+Indexes - setup/mongod/init.js now creates all of them:
+  db.cache_gd.createIndex({userId:1,version:1,urlHash:1})
+  db.accessTokens.createIndex({userId:1,service:1})
+  db.authfail.createIndex({ts:1},{expireAfterSeconds:3600})
+     (that last one backs the site-access-code lockout, $authCodeMaxFails; without
+      the TTL index the counter rows would accumulate forever)
+
+================================================================================
+7. Activate DrvTW
+================================================================================
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo ln -s /var/www/drv_tw/nginx_drvtw /etc/nginx/sites-enabled/.
+# and, if you run the caching proxy on this or another box:
+sudo ln -s /var/www/drv_tw/nginx_proxy /etc/nginx/sites-enabled/.
+
+Edit nginx_drvtw before restarting:
+  * set_real_ip_from - list ONLY your own proxy/CDN boxes.  With 0.0.0.0/0 every
+    visitor can pick their apparent source address, which defeats rate limiting,
+    abuse reports and the log.
+  * fastcgi_pass - the socket of the PHP pool you installed
+  * certificate paths - /etc/ssl/d2w-fullchain.cer and /etc/ssl/d2w.key
+
+sudo nginx -t && sudo service nginx restart
+
+================================================================================
+8. TEST
+================================================================================
+# audit the deployment before and after: config placeholders/permissions/extensions,
+# blacklist structure, and whether the fastcgi socket named in nginx_drvtw exists.
+# Exit status 2 = something that blocks serving. --root takes either the
+# deployment folder or the docroot.
+php drvtw_oss/tools/d2w-audit.php --root /var/www/drv_tw
+
+# from the checkout (needs php + node; nginx -t runs against stubbed paths):
+cd drvtw_oss && ./tests/run-all.sh
+
+# live checks:
+curl -sI https://api.your.domain/ | head -1        # 301 -> https://www.your.domain/
+curl -sI http://api.your.domain/  | head -1        # 302 -> https://api.your.domain/ (force https)
+curl -s  https://random.on.your.domain/ | head -3  # your 404 page, not the old service's
+curl -s -o /dev/null -w '%{http_code}\n' \
+     https://api.your.domain/drvtw_private/drvtw_creds.php   # must be 404
+sudo tail /var/log/d2w/user.log                     # CSV lines appearing?
+# 7) TEST with tunnelled MongoDB (if the DB is on a separate host)
+ssh -4fN -L27017:127.0.0.1:27017 YOUR_USER@db-host
+
+================================================================================
+9. Frontend (static landing site + dashboard scripts)
+================================================================================
+frontend/www.drv.tw/inc/config.js is the only file you must edit (OAuth client ids,
+hosts, contact address; leave analyticsId/paypalClientId null unless wanted).
+Deploy frontend/www.drv.tw to Azure Static Web Apps (.github/workflows/deploy-frontend.yml)
+or serve the synced copy at /var/www/drv_tw/html/www.drv.tw - nginx's
+"try_files /$host$uri" finds it when your site is called www.your.domain.
+
+================================================================================
+10. Optional: CloudFront edge functions
+================================================================================
+Deploy backend/cf-lambda/*.js as Lambda@Edge (us-east-1 only), attach guf_* to the
+cdn-of distribution and opf_* to cdn2-of, set GOOGLE_API_KEY on guf_requestor, and add
+the hostnames to $d2wCdnHosts in drvtw_creds.php.  See backend/cf-lambda/README.md.
+
+================================================================================
+11. OS tuning
+================================================================================
+# swap
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile
+sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# increase connections
+sudo vi /etc/sysctl.conf
+net.ipv4.tcp_tw_reuse=1
+net.core.somaxconn=1024
+sudo sysctl -p

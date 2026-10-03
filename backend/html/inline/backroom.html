@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>DriveToWeb Backroom</title>
+<style>
+table#requests {
+    font-family: sans-serif ;
+    font-size: 9pt ;
+}
+td {
+    max-width: 0 ;
+    white-space: nowrap ;
+    overflow: hidden ;
+    text-overflow: ellipsis ;
+    border-bottom: solid 1px #eee ;
+}
+td.green {
+    background-color: #cfc;
+}
+td.yellow {
+    background-color: #ffc;
+}
+td.red {
+    background-color: #fcc;
+}
+td.blue {
+    background-color: #ccf;
+}
+td.warn {
+    background-color: #f88;
+}
+td > a {
+    color: #0a0 ;
+    text-decoration: none ;
+}
+td > a:hover {
+    text-decoration: underline ;
+}
+th {
+    text-align: left ;
+}
+th#colIp {
+    width: 130px ;
+}
+th#colHttp {
+    width: 50px ;
+}
+th#colDur {
+    width: 50px ;
+}
+th#colMiss {
+    width: 20px ;
+}
+th#colRef {
+    width: 380px ;
+}
+th#colUrl {
+    width: 290px ;
+}
+th#colUa {
+    width: 160px ;
+}
+th#colUid {
+    width: 80px ;
+}
+th#colStartTime {
+    width: 64px ;
+}
+th#colEndTime {
+    width: 60px ;
+}
+th.clickableHeader {
+    cursor: pointer ;
+    color: #0a0 ;
+}
+tr.hidden {
+    display: none ;
+}
+tr.heavy {
+    font-weight: bold ;
+}
+button#btnPause {
+    position: fixed ;
+    top: 10px ;
+    left: 10px ;
+    z-index: 100 ;
+    font-size: 24pt ;
+}
+div#timer {
+    width: 100% ;
+    height: 5px ;
+    background-color: #0a0 ;
+    margin-bottom: 10px ;
+}
+div#timer.active {
+    animation-duration: 60s ;
+    animation-name: animShrinkWidth ;
+    animation-timing-function: linear ;
+}
+@keyframes animShrinkWidth {
+    from { transform: scaleX( 1 ) ; }
+    to { transform: scaleX( 0 ) ; }
+}
+</style>
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.8.2/css/all.css" integrity="sha384-oS3vJWv+0UjzBfQzYUhtDYW+Pj2yciDJxpsK1OYPAYjqT085Qq/1cq5FLXAZQ7Ay" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+</head>
+<body>
+    <button id="btnPause" type="button" title="Pause / resume"><i class="fas fa-pause-circle"></i></button>
+    <div id="chart"></div>
+    <div id="timer"></div>
+    <table id="requests"></table>
+<script nonce="{{CSP_NONCE}}">
+
+const chartTimeRange = 10 * 60 ;
+const tableTimeRange = 10 * 60 ;
+
+let bPaused = false ;
+
+function doPause( btn ) {
+    btn.innerHTML = '<i class="fas fa-' + ( bPaused ? 'pause' : 'play' )+ '-circle"></i>' ;
+    bPaused = !bPaused ;
+}
+
+function doToggleVisible( btn, rowClass ) {
+    if( '+' == btn.innerHTML ) {
+        btn.innerHTML = '-' ;
+        let rows = document.querySelectorAll( 'tr.' + rowClass ) ;
+        rows.forEach( function( row ){
+            row.classList.remove( 'hidden' ) ;
+        }) ;
+    }
+    else {
+        btn.innerHTML = '+' ;
+        let rows = document.querySelectorAll( 'tr.' + rowClass ) ;
+        rows.forEach( function( row ){
+            row.classList.add( 'hidden' ) ;
+        }) ;
+    }
+}
+
+window.onkeydown = function( evt ) {
+    if( 32 == evt.keyCode ) {
+        let btn = document.querySelector( '#btnPause' ) ;
+        doPause( btn ) ;
+        evt.preventDefault() ;
+    }
+}
+
+function parseCSV( line ) {
+    let fields = [] ;
+    let reCsvField = new RegExp( '(?:^|\,|\n)((?:"((?:""|[^"])*)")|([^,\n]*))', 'g' )
+    
+    let matches ;
+    while( line.length > 0 && null !== ( matches = reCsvField.exec( line ) ) ) {
+        fields.push( matches[ 2 ] ? matches[ 2 ].split( '""' ).join() : matches[ 3 ] ) ;
+    }
+
+    return fields ;
+}
+
+function shortenDisplayUrl( url, maxlen ) {
+    maxlen = maxlen || 60 ;
+    let shortUrl = url ;
+    try{
+        shortUrl = decodeURI( url ) ;
+    } catch( e ) {} ;
+
+    if( 0 === shortUrl.indexOf( 'https://' ) )
+        shortUrl = shortUrl.substr( 'https://'.length ) ;
+    else if( 0 === shortUrl.indexOf( 'http://' ) )
+        shortUrl = '@' + shortUrl.substr( 'http://'.length ) ;
+
+    if( shortUrl.length > maxlen )
+        shortUrl = shortUrl.substr( 0, maxlen / 2 - 1 ) 
+            + '…' + shortUrl.substr( -maxlen / 2 ) ;
+
+    return shortUrl ;
+}
+
+function getHashCode( str ){
+    var hash = 0 ;
+    for( var i = 0; i < str.length; i++ ){
+        var character = str.charCodeAt( i ) ;
+        hash = ( ( hash << 5 ) - hash ) + character ;
+        hash = hash & hash ;
+    }
+    return Math.abs( hash ).toString( 16 ) ;
+}
+
+let knownDevices = [
+    [ 'iPhone; CPU iPhone OS', 'Mobile) iPhone' ],
+    [ 'iPad; CPU OS', 'Tablet) iPad' ],
+    [ 'iPod touch;', 'Mobile) iPod Touch' ],
+    [ 'Intel Mac OS', 'PC) Mac' ],
+    [ 'CrOS x86', 'PC) ChromeOS Intel' ],
+    [ 'CrOS arm', 'PC) ChromeOS ARM 32' ],
+    [ 'CrOS aarch64', 'PC) ChromeOS ARM 64' ],
+    [ 'Linux x86', 'PC) Linux Intel' ],
+    [ 'Linux i686', 'PC) Linux Intel' ],
+    [ 'Linux arm', 'PC) Linux ARM' ],
+    [ 'Microsoft Outlook', 'PC) Office Outlook' ],
+    [ 'FBAN/FB4A', 'Mobile) Facebook Android app' ],
+    [ 'Opera Mini', 'Mobile) Opera Mini' ],
+    [ 'Googlebot', 'Bot) Googlebot' ],
+    [ 'bingbot', 'Bot) Bingbot' ],
+    [ 'Sogou web spider', 'Bot) Sogou web spider' ],
+    [ 'YandexBot', 'Bot) YandexBot' ],
+    [ 'SemrushBot', 'Bot) SemrushBot' ],
+    [ 'facebookexternalhit', 'Bot) Facebook' ],
+    [ 'HTTrack', 'Bot) HTTrack' ],
+    [ 'Chrome/57', 'Bot) Alibaba uptime' ],
+    [ 'UptimeRobot', 'Bot) UptimeRobot' ],
+    [ 'Google-Security-Zonelenny', 'Bot) Google Security' ],
+    [ 'Yandex', 'Bot) Yahoo Yandexbot' ],
+    [ 'AhrefsBot', 'Bot) AhrefsBot' ],
+    [ 'DotBot', 'Bot) DotBot' ],
+    [ 'Yeti', 'Bot) Naverbot' ],
+    [ 'Researchscan', 'Bot) Researchscan' ],
+    [ 'Nimbostratus-Bot', 'Bot) Nimbostratus-Bot' ],
+    [ 'ZoominfoBot', 'Bot) ZoominfoBot' ],
+    [ 'CheckMarkNetwork', 'Bot) CheckMarkNetwork' ],
+    [ 'aiHitBot', 'Bot) aiHit Bot' ],
+    [ 'freefind', 'Bot) Freefind Spider' ],
+    [ 'MJ12bot', 'Bot) MJ12bot' ],
+    [ 'Baiduspider', 'Bot) Baidu Spider' ],
+    [ 'zgrab', 'Bot) zgrab' ],
+    [ 'Pinterestbot', 'Bot) Pinterest' ],
+    [ 'Uptimebot', 'Bot) Uptime Bot' ],
+    [ 'Mediatoolkitbot>', 'Bot) Mediatoolkit Bot' ],
+    [ 'The Knowledge AI', 'Bot) The Knowledge AI' ],
+    [ 'Scrapy', 'Bot) Scrapy Bot' ],
+    [ 'SeznamBot', 'Bot) Seznam Bot CZ' ],
+    [ 'evc-batch', 'Bot) eVentures Crawler' ],
+    [ 'oBot', 'Bot) IBM oBot' ],
+    [ 'BLEXBot', 'Bot) BLEXBot' ],
+    [ 's~gce-spider', 'Bot) s~gce-spider' ],
+    [ 'Yahoo! Slurp', 'Bot) Yahoo! Slurp' ],
+    [ 'CloudFlare', 'Other) CloudFlare' ],
+    [ 'WordPress', 'Other) WordPress' ],
+    [ 'GoogleDocs; apps-spreadsheets;', 'Other) Google Spreadsheets' ],
+    [ '+Google-Document-Conversion', 'Other) Google Docs conversion' ],
+    [ 'Spotify', 'Other) Spotify' ],
+    [ 'SpinetiX', 'Other) SpinetiX' ],
+    [ 'node-superagent', 'Other) Nodejs SuperAgent' ],
+    [ 'Apache-HttpClient', 'Other) Java HttpClient' ],
+    [ 'Go-http-client', 'Other) Go HTTP client' ],
+    [ 'Raspbian', 'Other) Raspberry Pi' ],
+    [ 'Overcast', 'Other) Overcast' ],
+    [ 'RSSRadio', 'Other) RSSRadio' ],
+    [ 'LineBotWebhook', 'Other) LINE Bot' ],
+    [ 'UniversalFeedParser', 'Other) UniversalFeedParser' ],
+    [ 'PocketCasts', 'Other) Pocket Casts' ],
+    [ 'okhttp', 'Other) Square OkHttp' ],
+    [ 'curl', 'Other) curl' ],
+    [ 'cron-job.org', 'Other) cron-job.org' ],
+    [ 'SMART-TV', 'Other) Samsung Smart TV' ],
+    [ 'iVoox Global Podcasting Service', 'Other) iVoox Global Podcasting Service' ],
+    [ 'GoogleImageProxy', 'Other) Google Image Proxy' ],
+] ;
+
+function ua2device( ua ){
+    let res = '' ;
+    let matches ;
+    if( ua ) {
+        for( let iKnown = 0; iKnown < knownDevices.length; iKnown++ )
+            if( ua.indexOf( knownDevices[ iKnown ][ 0 ] ) >= 0 ) {
+                res = knownDevices[ iKnown ][ 1 ] ;
+                break ;
+            }
+
+        if( '' == res ) {
+            if( ua.indexOf( 'Windows NT ' ) >= 0 ) {
+                if( ua.indexOf( 'Windows NT 10.0' ) >= 0 )
+                    res += 'PC) Win 10' ;
+                else if( ua.indexOf( 'Windows NT 6.3' ) >= 0 )
+                    res += 'PC) Win 8.1' ;
+                else if( ua.indexOf( 'Windows NT 6.2' ) >= 0 )
+                    res += 'PC) Win 8' ;
+                else if( ua.indexOf( 'Windows NT 6.1' ) >= 0 )
+                    res += 'PC) Win 7' ;
+                else if( ua.indexOf( 'Windows NT 6.0' ) >= 0 )
+                    res += 'PC) Win Vista' ;
+                else if( ua.indexOf( 'Windows NT 5.2' ) >= 0 )
+                    res += 'PC) Win XP Pro' ;
+                else if( ua.indexOf( 'Windows NT 5.1' ) >= 0 )
+                    res += 'PC) Win XP' ;
+                else
+                    res += 'PC) Win NT' ;
+            }
+            else if( ua.indexOf( 'Android' ) >= 0 ) {
+                res = 'Mobile) An ' ;
+                if( matches = /Android[ \/]([\d]+)[\.\d]*(?:; ([^\(]*)\))?/.exec( ua ) ) {
+                    res += ' ' + matches[ 1 ] ;
+                    if( matches[ 2 ] )
+                        res += ' / ' + matches[ 2 ] ;
+                }
+            }
+            else if( matches = /([^\/]+)\/[\d\.]+ CFNetwork\/[\d\.]+ Darwin/.exec( ua ) )
+                res = 'Mobile) ' + decodeURIComponent( matches[ 1 ] ) + ' on Apple' ;
+
+            if( ua.indexOf( 'Edge/' ) >= 0 )
+                res += ' / Edge' ;
+            else if( ua.indexOf( 'OPR' ) >= 0 || ua.indexOf( 'Opera' ) >= 0 )
+                res += ' / Opera' ;
+            else if( ua.indexOf( 'Firefox' ) >= 0 )
+                res += ' / Firefox' ;
+            else if( ua.indexOf( 'Trident/7.0' ) >= 0 )
+                res += ' / IE 11' ;
+            else if( ua.indexOf( 'MSIE 7.0' ) >= 0 )
+                res += ' / IE 7' ;
+            else if( ua.indexOf( 'MSIE 5.0' ) >= 0 )
+                res += ' / IE 5' ;
+            else if( ua.indexOf( 'Chrome/' ) >= 0 )
+                res += ' / Chrome' ;
+        }
+
+        if( '' == res )
+            res = ua ;
+    }
+
+    return res ;
+}
+
+let token ;
+let offsetLastUpdate ;
+let cChartData = {} ;
+
+let events = [], eventsIndex = {} ;
+let geoips = {} ;
+
+let logs = [] ;
+let logsSort = 'ref' ;
+
+// This page builds HTML by string concatenation out of log lines, and log lines
+// carry data the visitor controls (Referer, User-Agent, the request path). An
+// unescaped " ends an attribute and lets a hostile request inject markup into the
+// operator's own page - so every interpolation below goes through esc(), and any
+// value used as a link goes through safeHref(), which also kills
+// href="javascript:…". (The CSP helps but does not save you here: script-src
+// allows https: origins for the chart library, so an injected
+// <script src="https://attacker/x.js"> would run.)
+function esc( v ) {
+    return String( undefined === v || null === v ? '' : v )
+        .replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' )
+        .replace( /"/g, '&quot;' ).replace( /'/g, '&#39;' ) ;
+}
+
+function safeHref( u ) {
+    u = String( u || '' ) ;
+    return /^(https?:)?\/\//i.test( u ) ? esc( u ) : '#' ;
+}
+
+function getEventRow( iEvent, rowClass ) {
+
+    let event = events[ iEvent ] ;
+    let ip = event[ 'ip' ], ip_loc ;
+    if( geoips[ ip ] && geoips[ ip ][ 'country_code' ] )
+        ip = geoips[ ip ][ 'country_code' ] + ' ' + ip ;
+    let httpCode = event[ 'httpCode' ] ;
+    let secDur = event[ 'secDuration' ] ;
+    let url = event[ 'url' ], displayUrl = shortenDisplayUrl( url, 40 ) ;
+    let referrer = event[ 'referrer' ] || '', 
+        displayRef = shortenDisplayUrl( referrer, 60 ) ;
+    let device = ua2device( event[ 'ua' ] ) ;
+    let uid = event[ 'uid' ] || '' ;
+    let row = '<tr' + ( rowClass ? ' class="' + esc( rowClass ) + '"' : '' )
+        + '><td><a href="' + safeHref( referrer ) + '" title="' + esc( referrer )
+            + '" target="_blank" rel="noopener noreferrer">' + esc( displayRef ) + '</a>'
+        + '<td><a href="' + safeHref( url ) + '" title="' + esc( url )
+            + '" target="_blank" rel="noopener noreferrer">' + esc( displayUrl ) + '</a>'
+        + '<td class="' + (
+            device.indexOf( 'PC) ' ) == 0 ? 'green' 
+            : ( device.indexOf( 'Mobile) ' ) == 0 || device.indexOf( 'Tablet) ' ) == 0 ? 'blue' 
+            : ( device.indexOf( 'Bot) ' ) == 0 ? 'yellow' 
+            : '' ) ) )
+            + '"><span title="' + esc( event[ 'ua' ] || '' ) + '">' 
+            + esc( device ) + "</span>"
+        + '<td><span title="' + esc( uid ) + '">' 
+            + esc( uid.substr( -16 ).substr( 0, 8 ) || '' )
+        + '<td>' + esc( ip )
+        + '<td class="' + ( 
+            [ '302', '304' ].includes( httpCode ) ? 'green' 
+            : ( [ '200', '301', '307' ].includes( httpCode ) ? 'yellow' 
+            : ( [ '404' ].includes( httpCode ) ? 'red' 
+            : ( [ '403' ].includes( httpCode ) ? 'warn' 
+            : '' ) ) ) ) + '">' + esc( httpCode || '' )
+        + '<td class="' + ( secDur <= 0.2 ? 'green' 
+            : ( secDur < 1.0 ? 'yellow' 
+            : ( secDur < 5.0 ? 'red' 
+            : ( secDur >= 5.0 ? 'red' 
+            : '' ) ) ) ) + '">' + ( undefined !== secDur ? secDur : '' )
+        + '<td>' + esc( event[ 'cacheMiss' ] || '' ) 
+            + ( event[ 'callRetry' ] ? '/' + esc( event[ 'callRetry' ] ) : '' )
+            + ( event[ 'cacheInvd' ] ? 'X' + esc( event[ 'cacheInvd' ] ) : '' )
+        + '<td>' + new Date( event[ 'tsStart' ] ).toTimeString() 
+        + '</tr>';
+
+    return row ;
+}
+
+function showLogs() {
+
+    let tsNow = Date.now() ;
+
+    let tableInnerHtml = '<tr>' 
+        + '<th id="colRef" class="clickableHeader" data-sort="ref">Referrer' 
+            + ( 'ref' == logsSort ? ' &#9660' : '' )
+        + '<th id="colUrl">URL'
+        + '<th id="colUa">User agent' 
+        + '<th id="colUid">UID' 
+        + '<th id="colIp">IP'
+        + '<th id="colHttp">HTTP' 
+        + '<th id="colDur" class="clickableHeader" data-sort="dur">Dur'
+            + ( 'dur' == logsSort ? ' &#9660' : '' )
+        + '<th id="colMiss"><span title="Cache miss/retry">M/RXI</span>'
+        + '<th id="colStartTime" class="clickableHeader" data-sort="start">Start' 
+            + ( 'start' == logsSort ? ' &#9660' : '' )
+        + '</tr>' ;
+
+    let refStats = {} ;
+    if( [ 'ref', 'dur' ].includes( logsSort ) ) {
+        for( let iEvent = events.length - 1; iEvent >= 0 
+            && tsNow - events[ iEvent ][ 'tsStart' ] < tableTimeRange * 1000 ; iEvent-- ) {
+
+            let event = events[ iEvent ] ;
+            let uid = event[ 'uid' ] || event[ 'ip' ] ;
+
+            // URL parser technique
+            let urlParser = document.createElement( 'a' ) ;
+            urlParser.href = event[ 'referrer' ] ;
+            
+            let refKey = ( event[ 'referrer' ] ? urlParser.hostname : '' ) ;
+
+            if( !refStats[ refKey ] ){
+                refStats[ refKey ] = {
+                    'count': 1,
+                    'referrer': event[ 'referrer' ],
+                    'events': [ iEvent ],
+                    'users': [ uid ],
+                    'timeTotal': event[ 'secDuration' ] || 0.0,
+                    'cTime': ( undefined !== event[ 'secDuration' ] ? 1 : 0 ),
+                    'bLocal': ( event[ 'url' ].indexOf( urlParser.hostname ) >= 0 ),
+                    'tsStart': events[ iEvent ][ 'tsStart' ]
+                }
+            }
+            else {
+                let rs = refStats[ refKey ] ;
+
+                rs[ 'count' ]++ ;
+                rs[ 'events' ].push( iEvent ) ;
+                rs[ 'referrer' ] = event[ 'referrer' ] ;
+                if( -1 == rs[ 'users' ].indexOf( uid ) )
+                    rs[ 'users' ].push( uid ) ;
+                rs[ 'timeTotal' ] += event[ 'secDuration' ] || 0.0 ;
+                if( undefined !== event[ 'secDuration' ] )
+                    rs[ 'cTime' ]++ ;
+                rs[ 'tsStart' ] = events[ iEvent ][ 'tsStart' ] ;
+            }
+        }
+
+        let sorter = [] ;
+        for( let refKey in refStats ) {
+            sorter.push( [ refKey, ( 'dur' === logsSort 
+                ? ( refStats[ refKey ][ 'timeTotal' ] / refStats[ refKey ][ 'users' ].length )
+                : refStats[ refKey ][ 'users' ].length ) ] ) ;
+        }
+        sorter.sort( function( a, b ) {
+            return b[ 1 ] - a[ 1 ] ;
+        }) ;
+
+        for( let iSorted = 0; iSorted < sorter.length; iSorted++ ) {
+            let refKey = sorter[ iSorted ][ 0 ] ;
+            let rs = refStats[ refKey ] ;
+            let referrer = rs[ 'referrer' ] || '' ;
+            let iEvent = rs[ 'events' ][ 0 ] ;
+
+            tableInnerHtml += '<tr class="heavy"><td colspan="3">'
+                + '<button data-toggle="r' + getHashCode( refKey ) 
+                + '">+</button> <a href="' + safeHref( referrer ) + '" title="' + esc( referrer )
+                + '" target="_blank" rel="noopener noreferrer">'
+                + ( '' == refKey ? '[Direct]' : ( rs[ 'bLocal' ] ? '[Local] ' : '[Referral] ' ) )
+                + esc( shortenDisplayUrl( referrer, 100 ) )
+                + '</a> ' + rs[ 'events' ].length 
+                + '<td colspan="3">' + rs[ 'users' ].length 
+                + '<td colspan="2">' + ( rs[ 'timeTotal' ] / rs[ 'users' ].length ).toFixed( 3 )
+                + '<td colspan="1">' + new Date( rs[ 'tsStart' ] ).toTimeString()
+                + '</tr>' ;
+
+            for( let iEventIdx = 0; iEventIdx < rs[ 'events' ].length; iEventIdx++ ) {
+                tableInnerHtml += getEventRow( rs[ 'events' ][ iEventIdx ], 
+                    'r' + getHashCode( refKey ) + ' hidden' ) ;
+            }
+        }            
+    }
+    else {
+        for( let iEvent = events.length - 1; iEvent >= 0 
+            && tsNow - events[ iEvent ][ 'tsStart' ] < tableTimeRange * 1000 ; iEvent-- ) {
+
+            tableInnerHtml += getEventRow( iEvent ) ;
+        }
+    }
+
+    let tableRequests = document.querySelector( '#requests' ) ;
+    tableRequests.innerHTML = tableInnerHtml ;
+
+    // Bound once and it covers every re-render; replaces the inline
+    // onclick="…" the shipped page put on the sortable headers and the row
+    // toggles. A nonce allows an inline <script>, but never an inline handler.
+    if( !tableRequests.dataset.d2wBound ) {
+        tableRequests.dataset.d2wBound = '1' ;
+        tableRequests.addEventListener( 'click', function( ev ) {
+            let el = ev.target ;
+            let th = el && el.closest ? el.closest( 'th[data-sort]' ) : null ;
+            if( th ) {
+                logsSort = th.getAttribute( 'data-sort' ) ;
+                showLogs() ;
+                return ;
+            }
+            let btn = el && el.closest ? el.closest( 'button[data-toggle]' ) : null ;
+            if( btn )
+                doToggleVisible( btn, btn.getAttribute( 'data-toggle' ) ) ;
+        } ) ;
+    }
+}
+
+function loadLogs() {
+    let lines = this.responseText.split( '\n' ) ;
+
+    if( lines.length > 0 ) {
+        let offsets = lines[ 0 ].split( ',' ) ;
+        let offsetBegin = parseInt( offsets[ 0 ] ), 
+            offsetEnd = parseInt( offsets[ 1 ] ), 
+            offsetLast  = parseInt( offsets[ 2 ] ) ;
+
+        offsetLastUpdate = offsetEnd ;
+
+        let lastTick ;
+        for( let iLine = 1; iLine < lines.length; iLine++ ) {
+            let fields = parseCSV( lines[ iLine ] ) ;
+            if( 3 == fields.length ) {
+                let ts = Date.parse( fields[ 0 ] ) ;
+
+                if( undefined === lastTick )
+                    lastTick = ts ;
+
+                for( let iTick = lastTick; iTick <= ts; iTick += 1000 ) {
+                    if( undefined === cChartData[ iTick ] )
+                        cChartData[ iTick ] = 0 ;
+                }
+
+                let status ;
+                if( null !== ( status = /HTTP ([^ ]*) (.*)/.exec( fields[ 2 ] ) ) ) {
+                    eventsIndex[ fields[ 1 ] ] = events.length ;
+                    events.push( {
+                        'index': fields[ 1 ],
+                        'tsStart': ts,
+                        'method': status[ 1 ],
+                        'url': status[ 2 ]
+                    } ) ;
+                }
+                else if( undefined !== eventsIndex[ fields[ 1 ] ] ) {
+                    let event = events[ eventsIndex[ fields[ 1 ] ] ] ;
+                    if( null !== /USER /.exec( fields[ 2 ] ) ) {
+                        let re = /(ip|uid|referrer):([^,]*)|(ua):(.*)/g ;
+                        while( null !== ( status = re.exec( fields[ 2 ] ) ) ) {
+                            let type = status[ 1 ] || status[ 3 ] ;
+                            let value = status[ 2 ] || status[ 4 ] ;
+                            event[ type ] = value ; 
+
+                            if( 'ip' == type ) {
+                                if( undefined === geoips[ value ] ) {
+                                    geoips[ value ] = {} ;
+                                    let xhr = new XMLHttpRequest() ;
+                                    xhr.onload = function(){
+                                        var geo = JSON.parse( this.responseText ) ;
+                                        geoips[ value ] = {
+                                            'country_code': geo[ 'country_code' ],
+                                            'latitude': geo[ 'latitude' ],
+                                            'longitude': geo[ 'longitude' ]
+                                        } ;
+                                    } ;
+                                    xhr.open( 'GET', 'https://api.freegeoip.app/json/' + value + '?apikey=YOUR_FREEGEOIP_API_KEY' ) ;
+                                    xhr.send();
+                                }
+                            }
+                        }
+                    }
+                    else if( 'CACH:miss' == fields[ 2 ] ) {
+                        if( undefined === event[ 'cacheMiss' ] )
+                            event[ 'cacheMiss' ] = 1 ;
+                        else
+                            event[ 'cacheMiss' ]++ ;
+                    }
+                    else if( fields[ 2 ].startsWith( 'CALL:rtry' ) ) {
+                        if( undefined === event[ 'callRetry' ] )
+                            event[ 'callRetry' ] = 1 ;
+                        else
+                            event[ 'callRetry' ]++ ;
+                    }
+                    else if( fields[ 2 ].startsWith( 'CACH:invd' ) ) {
+                        if( undefined === event[ 'cacheInvd' ] )
+                            event[ 'cacheInvd' ] = 1 ;
+                        else
+                            event[ 'cacheInvd' ]++ ;
+                    }
+                    else if( null !== ( status = /RESP ([\d]{3})/.exec( fields[ 2 ] ) ) ) {
+                        event[ 'httpCode' ] = status[ 1 ] ;
+                    }
+                    else if( null !== ( status = /TIME X* ([\.\d]*)/.exec( fields[ 2 ] ) ) ) {
+                        let secDur = parseFloat( status[ 1 ] ) ;
+                        event[ 'tsEnd' ] = ts ;
+                        event[ 'secDuration' ] = secDur ;
+                        cChartData[ ts ] += secDur ;
+                    }
+                } 
+
+                lastTick = ts ;
+            }
+        }
+
+        let dataChart = [] ;
+        for( let time in cChartData ) {
+            if( cChartData.hasOwnProperty( time ) ){
+                if( Date.now() - time > chartTimeRange * 1000 )
+                    delete cChartData[ time ] ;
+                else
+                    dataChart.push( [ parseInt( time ), cChartData[ time ] ] ) ;
+            }
+        }
+
+        chart.updateSeries([{
+            'name': 'Time',
+            'data': dataChart
+        }]) ;
+
+        showLogs() ;
+    }
+}
+
+function getLogs() {
+    if( bPaused )
+        return ;
+
+    let divTimer = document.querySelector( 'div#timer' ) ;
+    if( divTimer ) {
+        divTimer.classList.remove( 'active' ) ;
+        setTimeout( function() {
+            divTimer.classList.add( 'active' ) ;
+        }, 100 ) ;
+    }
+
+    let xhr = new XMLHttpRequest();
+    xhr.addEventListener( 'load', loadLogs ) ;
+    xhr.open( 'GET', '{{API_URL}}/@@log.csv/' + token
+        + '?l=16384'
+        + ( offsetLastUpdate ? '&r=' + offsetLastUpdate : '' ) ) ;
+    xhr.send();
+}
+
+function getToken() {
+    let r = JSON.parse( this.responseText ) ;
+    if( r && r.token ) {
+        token = r.token ;
+        getLogs() ;
+
+        setInterval( getLogs, 1000 * 60 ) ;
+    }
+}
+
+let options = {
+    'chart': {
+        'type': 'bar',
+        'animations': {
+            'enabled': false
+        },
+        'height': '240px',
+        'toolbar' : {
+            'show': false
+        }
+    },
+    'dataLabels': {
+        'enabled': false
+    },
+    'series': [],
+    'xaxis': {
+        'type': 'datetime',
+        'labels': {
+            'datetimeFormatter': {
+                'hour': 'HH:mm:ss'
+            }
+        },
+        'tickAmount': 10,
+        'range': chartTimeRange * 1000
+    },
+    'yaxis': {
+        'decimalsInFloat': false
+    },
+    'tooltip': {
+        'x': {
+            'format': 'HH:mm:ss'
+        }
+    },
+} ;
+
+let chart = new ApexCharts( document.querySelector("#chart"), options ) ;
+chart.render();
+
+let btnPause = document.getElementById( 'btnPause' ) ;
+if( btnPause )
+    btnPause.addEventListener( 'click', function(){ doPause( btnPause ) ; } ) ;
+
+let xhr = new XMLHttpRequest();
+xhr.addEventListener( 'load', getToken ) ;
+xhr.open( 'GET', '{{API_URL}}/@@tok' );
+xhr.send();
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=300, initial-scale=1" name="viewport">
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title>Needs authentication</title>
+<base href="{{WEB_URL}}">
+<link rel="stylesheet" type="text/css" href="/inc/wd.css">
+<link rel="stylesheet" type="text/css" href="/inc/wd-s.css" media="screen and (max-width: 580px)">
+</head>
+<body>
+    <h1 class="bar warn">Needs authentication</h1>
+    <div class="main instructions">
+        <p>Due to malicious abuse by some users, we are strictly enforcing authentication of 
+            content ownership.</p>
+        <p>This site needs to be authenticated before its content can be shown. If <strong>you are the 
+            owner of this site</strong>, please provide an <strong>organizational</strong> email 
+            address (school, company, etc., <strong>not Gmail nor Outlook email</strong>) to verify 
+            your identity.</p>
+
+        <div id="validationForm">
+            <label for="txtOrgEmail">Your organizational email (personal email not accepted):</label>
+            <input type="email" id="txtOrgEmail" autocomplete="email" spellcheck="false">
+            <button id="btnGetCode" type="button" disabled>Get validation code in email</button>
+            <p><span id="tipEmailCheck" class="warn">Email address format not valid</span></p>
+
+            <form action="{{API_URL}}/do/checkSiteAuth" method="GET">
+                <input type="hidden" id="url" name="url">
+                <input type="hidden" name="site" value="%%DRV_SITE%%">
+                <label for="txtValidation">Enter validation code:</label>
+                <input type="text" id="txtValidation" name="code" maxlength="6" autocomplete="one-time-code"
+                    inputmode="numeric" pattern="[0-9]*" spellcheck="false">
+                <input type="submit" value="Validate" id="btnValidate" disabled>
+                <div id="authNote" role="status" style="display:none;color:#a33;padding-top:.5em"></div>
+            </form>
+        </div>
+    </div>
+    <div id="footnotes">
+        <div class="left">
+            <a href="/">Home / Sign-in</a>
+            <a href="/tos.html" target="_blank">Terms</a>
+            <a href="/privacy.html" target="_blank">Privacy</a>
+            <a href="https://twitter.com/drv_tw" target="_blank">Twitter</a>
+            <a href="mailto:{{CONTACT_EMAIL}}" id="mailto">Email</a>
+            <a href="{{WEB_URL}}/docs" target="_blank">Docs</a>
+            <a href="/supportus.html" title="Your support is greatly appreciated!" 
+                class="highlight">Support us</a>
+        </div>
+        <div class="right">
+            <div id="google_translate_element"></div>
+        </div>
+    </div>
+<script type="text/javascript" nonce="{{CSP_NONCE}}">
+document.getElementById('mailto').setAttribute('href','mailto:{{CONTACT_EMAIL}}?subject='+encodeURIComponent('Authenticate '+location.href));
+document.getElementById('url').setAttribute('value',location.href);
+
+// The server redirects back here with ?auth=bad (wrong code) or ?auth=slow
+// (too many wrong codes for this site, see $authCodeMaxFails).
+(function showAuthNote(){
+    const why = new URLSearchParams( location.search ).get( 'auth' ) ;
+    const note = document.getElementById('authNote') ;
+    if( !why || !note ) return ;
+    note.innerText = 'slow' == why
+        ? 'Too many incorrect codes were entered for this site. Please wait several minutes and try again.'
+        : 'That code did not match. Check the e-mail and try again.' ;
+    note.style.display = 'block' ;
+})();
+function checkOrgEmail(){
+    const email = document.getElementById('txtOrgEmail').value ;
+    const bValidEmail = !!(String(email).toLowerCase().match(
+        /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|.(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+    )) ;
+    document.getElementById('btnGetCode').setAttribute('disabled', '');
+    if( bValidEmail ){
+        const email_lower = email.toLowerCase() ;
+        if( ( -1 == email_lower.indexOf('@gmail.') )
+            && ( -1 == email_lower.indexOf('@outlook.') )
+            && ( -1 == email_lower.indexOf('@live.') ) 
+            && ( -1 == email_lower.indexOf('@hotmail.') ) 
+        ) {
+            document.getElementById('btnGetCode').removeAttribute('disabled');
+            document.getElementById('tipEmailCheck').innerText = '' ;
+        }
+        else
+            document.getElementById('tipEmailCheck').innerText = 'Requires email of your organization (school, company, etc.).' ;
+    }
+    else
+        document.getElementById('tipEmailCheck').innerText = 'Email address format not valid.' ;
+}
+function checkCodeLength(){
+    console.log(document.getElementById('txtValidation').value);
+    if(6==document.getElementById('txtValidation').value.length)
+        document.getElementById('btnValidate').removeAttribute('disabled');
+    else
+        document.getElementById('btnValidate').setAttribute('disabled','');
+}
+function sendCode(){
+    const site = '%%DRV_SITE%%' ;
+    const email = document.getElementById('txtOrgEmail').value ;
+    document.getElementById('tipEmailCheck').innerText = 'Sending code...' ;
+    fetch('{{API_URL}}/do/sendSiteAuth?' + new URLSearchParams({ site, email }))
+        .then( resp => resp.json() )
+        .then( (json) => {
+            if( json.success ) {
+                document.getElementById('tipEmailCheck').innerText = 'Sent. Check your email for validation code.' ;
+                document.getElementById('btnGetCode').setAttribute('disabled', '');
+                const tsSent = Date.now();
+                const timer = setInterval(function(){
+                    const secPassed = Math.floor( ( Date.now() - tsSent ) / 1000 ) ;
+                    if( secPassed > 60 ) {
+                        document.getElementById('btnGetCode').removeAttribute('disabled');
+                        document.getElementById('btnGetCode').innerText = 'Get validation code in email' ;
+                        clearInterval( timer ) ;
+                    }
+                    else {
+                        document.getElementById('btnGetCode').innerText = 'Wait ' + ( 60 - secPassed ) + 's before requesting again' ;
+                    }
+                }, 1000 ) ;
+            }
+            else
+                document.getElementById('tipEmailCheck').innerText = json.tip ;
+        })
+        .catch( ( reason ) => { 
+            console.error( 'sendSiteAuth failed', reason ) ; 
+            document.getElementById('tipEmailCheck').innerText = 'Unable to send code. Try again.' ;
+        }) ;
+}
+// Bound here instead of as onchange/onkeyup attributes: the Content-Security-Policy
+// of the pages index.php renders (d2w_app_csp()) permits inline scripts carrying this
+// response's nonce, and no inline event handlers at all.
+function d2w_bind( id, fn, events ) {
+    var el = document.getElementById( id ) ;
+    if( !el )
+        return ;
+    events.forEach( function( ev ) { el.addEventListener( ev, fn ) ; } ) ;
+}
+d2w_bind( 'txtOrgEmail', checkOrgEmail, [ 'change', 'keyup', 'paste', 'input' ] ) ;
+d2w_bind( 'txtValidation', checkCodeLength, [ 'change', 'keyup', 'paste', 'input' ] ) ;
+d2w_bind( 'btnGetCode', sendCode, [ 'click' ] ) ;
+
+checkOrgEmail();
+checkCodeLength();
+function googleTranslateElementInit() {new google.translate.TranslateElement({pageLanguage: 'en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE, gaTrack: false}, 'google_translate_element');}
+</script><script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+</body>
+</html>

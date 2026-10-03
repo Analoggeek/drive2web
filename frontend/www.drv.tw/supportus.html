@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=300, initial-scale=1" name="viewport">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>Support DriveToWeb</title>
+<base href="/">
+<link rel="stylesheet" type="text/css" href="/inc/wd.css">
+<link rel="stylesheet" type="text/css" href="/inc/wd-s.css" media="screen and (max-width: 580px)">
+<script src="/inc/config.js"></script>
+<script src="/inc/wd.js"></script>
+</head>
+<body>
+    <h1 class="bar">DriveToWeb Needs Your Support</h1>
+    <div class="main instructions">
+        <p>Everyday, DriveToWeb enables countless educators, students, non-profits and web enthusiasts 
+            to apply their creativity towards building a better world, for free. At the same time, our 
+            security team works 24x7 to fend off bad actors who misuse DriveToWeb for malicious 
+            activities such as phishing and copyright infringement, which had led to blockage of our
+            service multiple times in the past. In addition, we deliver terabytes of data through
+            paid services each month to improve viewer experience globally.</p>
+        <p>We ask for your generous donation to keep this service running. Thank you in advance for 
+            your support.</p>
+
+        <!-- The PayPal SDK is loaded by the script at the bottom of this
+             page, and only when inc/config.js provides paypalClientId. -->
+
+        <p>
+            <label for="amount">Choose the amount of your donation (in US dollars):</label>
+        </p>
+        <table width="100%"><tr>
+            <td>
+                <input type="radio" id="amount_10" name="amount" value="10" onchange="onAmountChange()">
+                <label for="amount_10">$10</label>    
+            </td>
+            <td>
+                <input type="radio" id="amount_50" name="amount" value="50" onchange="onAmountChange()" checked>
+                <label for="amount_50">$50</label>
+            </td>
+            <td>
+                <input type="radio" id="amount_other" name="amount">
+                <label for="amount_other">
+                    $<input type="number" id="amount_other_number" min="10" step="10" value="100"
+                        style="width: 50px" onfocus="onAmountNumberFocus()" onchange="onAmountChange()"></input>
+                </label>
+            </td>
+        </tr></table>
+        <p id="p_hide_rfs" class="hidden">
+            <label for="hide_rfs" id="l_hide_rfs"></label>
+            <input type="checkbox" id="hide_rfs" name="hide_rfs">
+        </p>
+        <p>Your payment is processed securely thru PayPal.</p>
+        <div id="paypal-button-container"></div>
+
+        <script>
+            const referrer_host = document.referrer.split('/')[ 2 ] ;
+            const msgRfs = 'If you do not want others to see our request for support banner, you may check this ' 
+                + 'following box to suppress it on domain <!--DOMAIN--> for 30 days with your donation.' ;
+
+            setRfs() ;
+            // Off unless the deployment sets donateDomainCheck: true, and then
+            // only for a page embedded from a different domain.
+            var d2wCfg = window.D2W || { } ;
+            if( d2wCfg.donateDomainCheck && referrer_host
+                && referrer_host !== window.location.hostname )
+                document.querySelector('#p_hide_rfs').classList.remove( 'hidden' ) ;
+
+            function setRfs() {
+                document.querySelector('#l_hide_rfs').innerHTML = msgRfs.replace( '<!--DOMAIN-->', referrer_host ) ;
+            }
+
+            function onAmountNumberFocus(){
+                document.querySelector('#amount_other').checked = true ;
+            }
+
+            function onAmountChange(){
+                setRfs() ;
+
+                if( getAmount() < 10 ) {
+                    document.querySelector('#amount_other_number').value = 10 ;
+                    alert( 'Please set amount for $10 or greater to offset transaction fees' ) ;
+                }
+            }
+
+            function getAmount() {
+                let value = -1 ;
+                let checked = document.querySelector('input[name="amount"]:checked') ;
+                if( !isNaN( checked.value ) )
+                    value = checked.value ;
+                else
+                    value = parseInt( document.querySelector('#amount_other_number').value ) ;
+
+                return value ;
+            }
+
+        function d2wRenderPaypal() {
+            if( !window.paypal || !window.paypal.Buttons ) {
+                document.getElementById( 'paypal-button-container' ).innerHTML =
+                    '<p>Donations are not configured on this deployment: set '
+                    + '<code>paypalClientId</code> in <code>inc/config.js</code>.</p>' ;
+                return ;
+            }
+
+            window.paypal.Buttons({
+                style: {
+                    shape: 'rect',
+                    color: 'blue',
+                    layout: 'vertical',
+                    label: 'pay',                    
+                },
+
+                createOrder: function(data, actions) {
+                    return actions.order.create({
+                        purchase_units: [{
+                            amount: {
+                                value: getAmount()
+                            }
+                        }]
+                    });
+                },
+
+                onApprove: function(data, actions) {
+                    return actions.order.capture().then(function(orderData) {
+                        console.log('Capture result', orderData, JSON.stringify(orderData, null, 2));
+
+                        var element = document.getElementById('paypal-button-container');
+                        element.innerHTML = '<h3>Thank you for your support!</h3>' 
+                            + ( history.length > 0 ? `<button onclick="history.back()">Go back</button>` : '' ) ;
+                    });
+                }
+        }).render('#paypal-button-container');
+        }
+
+        (function () {
+            var cfg = window.D2W || { } ;
+            var clientId = cfg.paypalClientId ;
+            if( !clientId || 0 === String( clientId ).indexOf( 'YOUR_' ) ) {
+                d2wRenderPaypal() ;   // shows the "not configured" note
+                return ;
+            }
+            var s = document.createElement( 'script' ) ;
+            s.src = 'https://www.paypal.com/sdk/js?client-id='
+                + encodeURIComponent( clientId ) + '&currency=USD' ;
+            s.onload = d2wRenderPaypal ;
+            s.onerror = d2wRenderPaypal ;
+            document.head.appendChild( s ) ;
+        })() ;
+        </script>
+    </div>
+    <div id="footnotes">
+        <div class="left">
+            <a href="/tos.html" target="_blank">Terms</a>
+            <a href="/privacy.html" target="_blank">Privacy</a>
+            <a href="https://twitter.com/drv_tw" target="_blank">Twitter</a>
+            <a href="mailto:{{CONTACT}}">Email</a>
+            <a href="{{DOCS}}" target="_blank" rel="noopener">Docs</a>
+        </div>
+        <div class="right">
+            <div id="google_translate_element"></div>
+        </div>
+    </div>
+<script type="text/javascript">
+function googleTranslateElementInit() {new google.translate.TranslateElement({pageLanguage: 'en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE, gaTrack: false}, 'google_translate_element');}
+</script><script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+<script>
+</script>
+</body>
+</html>

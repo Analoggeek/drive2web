@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=300, initial-scale=1" name="viewport">
+<title>Too many requests</title>
+<base href="{{WEB_URL}}">
+<link rel="stylesheet" type="text/css" href="/inc/wd.css">
+<link rel="stylesheet" type="text/css" href="/inc/wd-s.css" media="screen and (max-width: 580px)">
+</head>
+<body>
+    <h1 class="bar warn">The file has been accessed too many times</h1>
+    <div class="main instructions">
+        <p><a href="{{WEB_URL}}">DriveToWeb</a> is unable to deliver the 
+            requested file since the cloud drive service on which the file is
+            stored only provides a limited number of downloads within a given time
+            period. Usually the file will become available again in 24 hours. 
+            Please check back later.</p>
+        <p>You may be able to access the file sooner with a paid bandwidth plan. 
+            If you are interested, contact us <a id="mailto" href="mailto:{{CONTACT_EMAIL}}">by email</a>.</p>
+    </div>
+    <div id="footnotes">
+        <div class="left">
+            Hosting provider <a href="{{WEB_URL}}" class="highlight">DriveToWeb</a>
+        </div>
+        <div class="right">
+            <div id="google_translate_element"></div>
+        </div>
+    </div>
+<script type="text/javascript" nonce="{{CSP_NONCE}}">
+document.getElementById('mailto').setAttribute('href','mailto:{{CONTACT_EMAIL}}?subject='+encodeURIComponent('Busy '+location.href));
+function googleTranslateElementInit() {new google.translate.TranslateElement({pageLanguage: 'en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE, gaTrack: false}, 'google_translate_element');}
+</script><script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+</body>
+</html>

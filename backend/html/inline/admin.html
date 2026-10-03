@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=300, initial-scale=1" name="viewport">
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<!-- {{CSRF}} is filled by d2w_inline_page() from the owner session cookie; it is
+     empty when this request is not authenticated, and admin.js then disables the
+     mutating tools. -->
+<meta name="d2w-csrf" content="{{CSRF}}" />
+<title>Admin Console - DriveToWeb</title>
+<base href="{{WEB_URL}}">
+<link rel="stylesheet" type="text/css" href="/inc/wd.css">
+<link rel="stylesheet" type="text/css" href="/inc/wd-s.css" media="screen and (max-width: 580px)">
+<link rel="stylesheet" type="text/css" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css">
+<!-- Loads either as "...?a=admin" or /.b/gd/ /.b/od/ -->
+</head>
+<body class="hidden">
+    <h1 class="bar">Admin Panel</h1>
+    <div class="main instructions">
+        <h2>Congratulations!</h2>
+        <p>In a moment, you will find links to all your web pages below.</p>
+        <p>Your pages are cached for faster access. As a result, your edits may not be shown immediately.
+            <b>After you change your content, please press <u>CTRL-F5</u> or <u>SHIFT-F5</u> in your browser to 
+            force a refresh.</b></p>
+        <div class="readmore" data-target="moreExample"></div>
+        <div id="moreExample" class="more">
+            <p>Read the <a href="{{WEB_URL}}/docs" target="_blank">DriveToWeb Docs</a> and learn about:</p>
+            <ul>
+                <li><a href="{{WEB_URL}}/docs/application/static-blogs/" target="_blank">Blogging</a> with static 
+                    generators;</li>
+                <li>Using a <a href="{{WEB_URL}}/docs/how-to/using-custom-domain-name/" 
+                    target="_blank">your own domain name</a> to build your branded website;</li>
+                <li>Using a <a href="{{WEB_URL}}/docs/how-to/using-cdn/" target="_blank">CDN</a> to 
+                    accelerate content access and provide security.</li>
+            </ul>        
+            <p>You can access this administrative panel when you sign in from <a href="/">DriveToWeb</a>. 
+                This admin page is only visible to you, the owner of this cloud drive account.</p>
+            <p>Have a suggestion for improvement? <a href="mailto:{{CONTACT_EMAIL}}">Tell us</a>
+                by email. Please send us your generous <a href="/supportus.html">support</a>.</p>
+        </div>
+
+        <h2>Your web pages</h2>
+        <div id="looking">
+            <p>Searching for HTML documents on your cloud drive. This may take a moment.</p>
+            <div class="centered">
+                <i class="fa fa-spinner fa-pulse fa-3x fa-fw"></i>
+                <span class="sr-only">Loading...</span>
+            </div>
+            <p>If you have not uploaded your files, now is the time to 
+                do it. Reload this page when you have finished.</p>
+        </div>
+        <div id="found" class="hidden">
+            <p>The following web pages are found. Please shared them publicly via your cloud drive 
+                if you wish to view them via URLs.</p>
+            <ul id="htmlLinks"></ul>
+        </div>
+        <div id="nofile" class="hidden">
+            <p>We were unable to discover any HTML page in your cloud drive account to show. Please 
+                upload some and reload this page when you have done so.</p>
+        </div>
+
+
+    </div>
+    <div id="footnotes">
+        <div class="left">
+            <a href="/">Home / Sign-in</a>
+            <a href="/tos.html" target="_blank">Terms</a>
+            <a href="/privacy.html" target="_blank">Privacy</a>
+            <a href="https://twitter.com/drv_tw" target="_blank">Twitter</a>
+            <a href="mailto:{{CONTACT_EMAIL}}">Email</a>
+            <a href="{{WEB_URL}}/docs" target="_blank">Docs</a>
+            <a href="/supportus.html" title="Your support is greatly appreciated!" 
+                class="highlight">Support us</a>
+        </div>
+        <div class="right">
+            <div id="google_translate_element"></div>
+        </div>
+    </div>
+
+    <style>
+/* Self-contained styles for the two site panels below: wd.css belongs to the
+   static marketing site and is cached there, so this page keeps its own. */
+#d2w-site .d2w-dl { display: grid; grid-template-columns: 8.5em 1fr; gap: .25em 1em; margin: .75em 0; }
+#d2w-site .d2w-dl dt { color: #777; font-weight: normal; }
+#d2w-site .d2w-dl dd { margin: 0; word-break: break-all; }
+#d2w-site .d2w-mono { font-family: Consolas, "Andale Mono WT", "Andale Mono", monospace; }
+#d2w-site .d2w-note { color: #555; margin: .5em 0; }
+#d2w-site .d2w-err { color: #a33; }
+#d2w-site .d2w-ok { color: #2a6; }
+#d2w-site .d2w-panel { border-top: 1px solid #e0e0e0; margin-top: .75em; padding-top: .5em; }
+#d2w-site input { font-family: Consolas, monospace; padding: .3em .4em; }
+#d2w-site button, #d2w-site .d2w-btn { margin-right: .35em; }
+    </style>
+    <!-- Address of this site. admin.js fills it from GET @@site and posts the
+         @@rename / @@domain commands back to this same site, so renaming or
+         binding a domain needs nothing beyond the drive sign-in that got the
+         owner here. Everything is written with textContent, never innerHTML. -->
+    <div class="main" id="d2w-site">
+        <h2>Your website</h2>
+        <p class="d2w-note" id="d2w-site-note">Loading the address of this site&hellip;</p>
+        <dl class="d2w-dl">
+            <dt>Address</dt>
+            <dd class="d2w-mono" id="d2w-site-url">&mdash;</dd>
+            <dt>Also as</dt>
+            <dd class="d2w-mono" id="d2w-site-hint">&mdash;</dd>
+            <dt>Own domain</dt>
+            <dd id="d2w-site-domain">not set</dd>
+        </dl>
+        <p>
+            <a class="d2w-btn" id="d2w-btn-open" href="#" target="_blank" rel="noopener noreferrer">Open site</a>
+            <button type="button" id="d2w-btn-copy">Copy address</button>
+            <button type="button" id="d2w-btn-rename">Change address</button>
+            <button type="button" id="d2w-btn-refresh" title="Re-read the site record">Refresh</button>
+        </p>
+        <div class="d2w-panel" id="d2w-rename" hidden>
+            <p><label for="d2w-newname">New address</label><br>
+                <input type="text" id="d2w-newname" maxlength="63" spellcheck="false"
+                    autocomplete="off" autocapitalize="off" autocorrect="off"
+                    placeholder="mysite">
+                <span class="d2w-mono" id="d2w-suffix">{{SITE_SUFFIX}}</span></p>
+            <p class="d2w-note" id="d2w-avail" role="status" aria-live="polite">&nbsp;</p>
+            <p>
+                <button type="button" id="d2w-btn-claim" disabled>Save address</button>
+                <button type="button" id="d2w-btn-cancel">Cancel</button>
+            </p>
+        </div>
+        <div class="d2w-panel" id="d2w-domain" hidden>
+            <p><label for="d2w-domain-input">Bring your own domain</label><br>
+                Publish a <b>TXT</b> record on the host you want to use, holding exactly:</p>
+            <p><code class="d2w-mono" id="d2w-txt">&mdash;</code>
+                <button type="button" id="d2w-btn-copytxt">Copy</button></p>
+            <p><input type="text" id="d2w-domain-input" spellcheck="false" autocomplete="off"
+                    placeholder="www.example.com">
+                <button type="button" id="d2w-btn-verify">Verify</button></p>
+            <p class="d2w-note" id="d2w-domain-note" role="status" aria-live="polite">&nbsp;</p>
+        </div>
+    </div>
+
+    <div class="main" id="d2w-tools">
+        <h2>Site tools</h2>
+        <p>These call the <code>@@</code> commands of your site as yourself
+            (they need the session cookie this page was rendered with).</p>
+        <p>
+            <label for="d2w-fileid">Drive file id (optional, required for the file commands):</label><br>
+            <input id="d2w-fileid" size="46" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs">
+        </p>
+        <p id="d2w-tool-buttons">
+            <button type="button" data-cmd="@@cache" data-method="GET">Refresh cache</button>
+            <button type="button" data-cmd="@@publish" data-method="POST">Publish file</button>
+            <button type="button" data-cmd="@@unlock" data-method="POST">Make file public</button>
+            <button type="button" data-cmd="@@lock" data-method="POST">Make file private</button>
+            <button type="button" data-cmd="@@dup" data-method="POST">Duplicate file</button>
+            <button type="button" data-cmd="@@delete" data-method="POST" data-confirm="1">Delete file</button>
+        </p>
+        <pre id="d2w-tool-result" style="white-space:pre-wrap"></pre>
+    </div>
+
+<script type="text/javascript" nonce="{{CSP_NONCE}}">
+function googleTranslateElementInit() {new google.translate.TranslateElement({pageLanguage: 'en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');}
+</script><script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+<script src="https://code.jquery.com/jquery-3.1.1.min.js" integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8=" crossorigin="anonymous"></script>
+<script src="/inc/punycode-2.1.0.min.js"></script>
+<script src="/inc/config.js"></script>
+<script src="/inc/admin.js"></script>
+</body>
+</html>

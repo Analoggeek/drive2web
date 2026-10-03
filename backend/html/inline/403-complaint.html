@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=300, initial-scale=1" name="viewport">
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title>Content withheld</title>
+<base href="{{WEB_URL}}">
+<link rel="stylesheet" type="text/css" href="/inc/wd.css">
+<link rel="stylesheet" type="text/css" href="/inc/wd-s.css" media="screen and (max-width: 580px)">
+</head>
+<body>
+    <h1 class="bar alert">Content withheld</h1>
+    <div class="main instructions">
+        <p>This file is withheld due to copyright/fraud complaint reported by <b>%%DRV_HOLDER%%.</b></p>
+    </div>
+    <div id="footnotes">
+        <div class="left">
+            <a href="/">Home / Sign-in</a>
+            <a href="/tos.html" target="_blank">Terms</a>
+            <a href="/privacy.html" target="_blank">Privacy</a>
+            <a href="https://twitter.com/drv_tw" target="_blank">Twitter</a>
+            <a href="mailto:{{CONTACT_EMAIL}}" id="mailto">Email</a>
+            <a href="{{WEB_URL}}/docs" target="_blank">Docs</a>
+            <a href="/supportus.html" title="Your support is greatly appreciated!" 
+                class="highlight">Support us</a>
+        </div>
+        <div class="right">
+            <div id="google_translate_element"></div>
+        </div>
+    </div>
+<script type="text/javascript" nonce="{{CSP_NONCE}}">
+document.getElementById('mailto').setAttribute('href','mailto:{{CONTACT_EMAIL}}?subject='+encodeURIComponent('Copyright '+location.href));
+function googleTranslateElementInit() {new google.translate.TranslateElement({pageLanguage: 'en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE, gaTrack: false}, 'google_translate_element');}
+</script><script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+</body>
+</html>

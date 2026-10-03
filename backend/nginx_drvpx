@@ -1,0 +1,151 @@
+proxy_cache_path /var/cache/nginx/drvtw levels=1:2 keys_zone=drvtw:100m
+    max_size=4g inactive=24h use_temp_path=off;
+
+proxy_cache_path /var/cache/nginx/gdc levels=1:2 keys_zone=gdc:100m
+    max_size=4g inactive=24h use_temp_path=off;
+
+log_format cache '$remote_addr - $remote_user [$time_local] '
+                 '"$request" $status $body_bytes_sent '
+                 '"$http_referer" "$http_user_agent" '
+                 '$scheme://$host [$request_time] $upstream_cache_status';
+
+resolver 127.0.0.53 ipv6=off;
+
+client_body_timeout 5s;
+client_header_timeout 5s;
+
+map $upstream_http_x_target_length $gdc_svr {
+    default         ":::DONOTPROXY:::";
+    "~^[0-9]{1,8}$" "https://drive.google.com/"; # If < 100 MB
+}
+
+map $upstream_http_x_target_length $od_cache {
+    default         0;
+    "~^[0-9]{1,8}$" 1; # If < 100 MB
+}
+
+merge_slashes off;
+
+server {
+    listen 80;
+    listen 443 ssl;
+
+    set $upstream_port 8080;
+    if ($scheme = 'https') {
+        set $upstream_port 8443;
+    }
+
+    # Point these at the cert you issued with acme.sh (see setup docs); the
+    # path below matches certbot layouts.
+    ssl_certificate /etc/letsencrypt/live/your.domain/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your.domain/privkey.pem;
+
+    ssl_session_cache shared:SSL:20m;
+    ssl_session_timeout 60m;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDH+AESGCM:ECDH+AES256:DHE+AESGCM:ECDHE+AES128:!aNULL:!MD5:!ADH:!AECDH;
+
+    add_header X-Cache $upstream_cache_status;
+
+    gzip on;
+    gzip_types text/plain text/xml text/css text/javascript
+        application/javascript application/x-javascript image/svg+xml;
+    gzip_min_length 1024;
+
+    error_log /var/log/nginx/proxy-error.log;
+
+    location / {
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_cache drvtw;
+        proxy_cache_key "$scheme$host$request_uri"; # https://www.drv.tw != http://drv.tw
+        proxy_cache_valid 200 302 2m;
+        proxy_cache_valid 304 1m;
+        proxy_cache_valid 301 1h;
+        proxy_cache_valid any 30s;
+        proxy_cache_revalidate on;
+        proxy_cache_lock on;
+
+        proxy_pass $scheme://127.0.0.1:$upstream_port;
+
+        proxy_redirect $scheme://127.0.0.1:$upstream_port/
+                       $scheme://$host:$server_port/;
+        proxy_redirect $gdc_svr https://www.drv.tw/_gdc/;
+        proxy_redirect ~^https://[^.]*\.[^.]*\.files\.1drv\.com/.*$ 
+            https://www.your.domain/_od$od_cache/$upstream_http_location;
+
+        access_log /var/log/nginx/proxy-access.log cache;
+    }
+
+    location /_gdc/ {
+        proxy_cache gdc;
+        proxy_cache_valid 302 304 3h;
+        proxy_cache_revalidate on;
+        proxy_cache_use_stale error timeout updating;
+        proxy_cache_background_update on;
+        proxy_cache_lock on;
+
+        rewrite ^/_gdc/(.*)$ /$1 break;
+        proxy_pass https://drive.google.com;
+
+        proxy_ignore_headers Expires Cache-Control Set-Cookie Vary;
+        proxy_hide_header Pragma;
+        proxy_hide_header Set-Cookie;
+        proxy_hide_header P3P;
+        expires 1h;
+        add_header Cache-Control "public";
+
+        proxy_redirect ~^https://doc-(..-..)-docs\.googleusercontent\.com/(.*)$ 
+            https://www.drv.tw/_gdu/$1/$2;
+
+        access_log /var/log/nginx/proxy-gdc-access.log cache;
+    }
+
+    location ~ ^/_gdu/(?<svr>[^/]*)/ {
+        proxy_cache gdc;
+        proxy_cache_valid 200 304 3h;
+        proxy_cache_revalidate on;
+        proxy_cache_use_stale error timeout updating;
+        proxy_cache_background_update on;
+        proxy_cache_lock on;
+
+        rewrite ^/_gdu/[^/]*/(.*)$ /$1 break;
+        proxy_pass https://doc-$svr-docs.googleusercontent.com;
+        proxy_read_timeout 90;
+
+        proxy_ignore_headers Expires Cache-Control Set-Cookie Vary;
+        proxy_hide_header Expires;
+        proxy_hide_header Cache-Control;
+        proxy_hide_header Content-Disposition;
+        expires 1h;
+        add_header Cache-Control "public";
+
+        access_log /var/log/nginx/proxy-gdu-access.log cache;
+    }
+
+    location ~ ^/_od0/https://[^.]*\.[^.]*\.files\.1drv\.com/ {
+        rewrite ^/_od0/https://(.*)$ https://$1 permanent;
+        access_log /var/log/nginx/proxy-odf-access.log cache;
+    }
+
+    location ~ ^/_od1/https://(?<sv1>[^.]*)\.(?<sv2>[^.]*)\.files\.1drv\.com/ {
+        proxy_cache gdc;
+        proxy_cache_valid 200 3h;
+        proxy_cache_revalidate on;
+        proxy_cache_use_stale error timeout updating;
+        proxy_cache_background_update on;
+        proxy_cache_lock on;
+
+        rewrite ^/_od1/https://[^/]*/(.*)$ /$1 break;
+        proxy_pass https://$sv1.$sv2.files.1drv.com;
+        proxy_read_timeout 90;
+
+        proxy_hide_header Content-Disposition;
+
+        access_log /var/log/nginx/proxy-odf-access.log cache;
+    }
+}

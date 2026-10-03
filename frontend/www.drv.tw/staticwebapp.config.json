@@ -1,0 +1,24 @@
+{
+    "routes": [
+        {
+            "route": "/index.html",
+            "redirect": "/",
+            "statusCode": 301
+        },
+        {
+            "route": "/.well-known/acme-challenge/*",
+            "redirect": "https://api.drv.tw/.well-known/acme-challenge/",
+            "statusCode": 301
+        }
+    ],    
+    "responseOverrides": {
+        "404": {
+            "redirect": "https://www.drv.tw",
+            "statusCode": 301
+        }
+    },
+    "globalHeaders": {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS"
+    }
+} 

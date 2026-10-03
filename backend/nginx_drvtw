@@ -1,0 +1,61 @@
+log_format drvtw '$remote_addr - $remote_user [$time_local] '
+                 '"$request" $status $body_bytes_sent '
+                 '"$http_referer" "$http_user_agent" '
+                 '$scheme://$host [$request_time]';
+
+server {
+    listen 8000 default_server;
+
+    root /var/www/drv_tw/html;
+
+    # Trust X-Forwarded-For ONLY from your own proxy/CDN boxes. With
+    # 0.0.0.0/0 every client can pick its own apparent IP, which defeats the
+    # rate limits, the abuse reports and the log itself. List the internal IPs
+    # of the machines in front of this server (see nginx_proxy).
+    set_real_ip_from 127.0.0.1;
+    set_real_ip_from 10.0.0.0/8;          # replace with your VPC/internal range
+    # set_real_ip_from <PROXY_INTERNAL_IP>/32;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    keepalive_timeout 10s;
+    fastcgi_read_timeout 120s;
+
+    # Match the socket of the PHP-FPM pool you installed (php8.1/8.2/8.3/8.4).
+    # Only index.php may be executed - do not put an info.php in the docroot
+    # (the shipped pattern allowed it, which leaks configuration to visitors).
+    location = /index.php {
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        include snippets/fastcgi-php.conf;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+
+    # Credentials, blacklist and log helpers must never be reachable, even
+    # if a future nginx change stops matching this directory by accident.
+    location ^~ /drvtw_private/ {
+        deny all;
+        return 404;
+    }
+
+    location ~ /\.(git|env|aws) {
+        deny all;
+        return 404;
+    }
+
+    location / {
+        # $host comes from the Host header and is used as a directory name
+        # here, so pin it to a plain hostname before it reaches try_files.
+        if ($host !~* "^[a-z0-9.-]{1,253}$") { return 400; }
+
+        try_files /$host$uri /$host$uri/index.html /index.php$is_args$query_string;
+    }
+
+    access_log /var/log/nginx/drv_tw-access.log drvtw;
+    error_log /var/log/nginx/drv_tw-error.log;
+
+	location /nginx_status {
+		stub_status on;
+		allow 127.0.0.1;
+		deny all;
+	}
+}

@@ -1,0 +1,138 @@
+#
+# DriveToWeb Proxy nginx config
+#
+
+proxy_cache_path /var/cache/nginx/drvtw levels=1:2 keys_zone=drvtw:50m
+    max_size=12g inactive=14d use_temp_path=off;
+
+limit_req_zone $request_uri$uid_got$binary_remote_addr 
+    zone=per_ihud:50m rate=128r/s;
+
+limit_conn_zone $binary_remote_addr zone=per_ip:10m;
+
+log_format cache '$remote_addr - $remote_user [$time_local] '
+                 '"$request" $status $body_bytes_sent '
+                 '"$http_referer" "$http_user_agent" '
+                 '$scheme://$host [$request_time] $upstream_cache_status';
+
+resolver 127.0.0.53 ipv6=off;
+
+client_body_timeout 5s;
+client_header_timeout 5s;
+
+map $upstream_http_content_type $d2w_pcached_1 {
+    default         1;
+    '~^audio/'      0;
+}
+
+map $upstream_http_x_d2w_target_length $d2w_pcached {
+    default         0;
+    '~^[0-9]{1,8}$' $d2w_pcached_1; # If < 100 MB; '~^[1-2]?[0-9]{1,8}$' for 300 MB
+}
+
+map $d2w_pcached $d2w_od_cache {
+    0               0;
+    1               1;
+}
+
+map $http_pragma$http_cache_control $d2w_bypass {
+    default         0;
+    '~no-cache'     1;
+    '~no-store'     1;
+}
+
+map $http_cache_control $d2w_nocache {
+    default         0;
+    'no-store'      1;
+}
+
+map $upstream_http_content_type $d2w_content_disposition {
+    'application/zip'  $upstream_http_content_disposition;
+    default         'inline';
+}
+
+merge_slashes off;
+
+upstream d2w_backend {
+    # The app server(s) from nginx_drvtw (listen 8000). Use private IPs.
+    server 127.0.0.1:8000; # APP_SERVER_INTERNAL_IP:8000
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    listen 443 ssl http2;
+
+    ssl_certificate /home/YOUR_USER/.acme.sh/your.domain_ecc/fullchain.cer;
+    ssl_certificate_key /home/YOUR_USER/.acme.sh/your.domain_ecc/your.domain.key;
+
+    ssl_session_cache shared:SSL:20m;
+    ssl_session_timeout 60m;
+    # TLSv1/1.1 are deprecated (RFC 8996); nginx 1.13.10+ supports TLSv1.3
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDH+AESGCM:ECDH+AES256:DHE+AESGCM:ECDHE+AES128:!aNULL:!MD5:!ADH:!AECDH;
+
+    proxy_cache drvtw;
+    proxy_cache_bypass $d2w_bypass;
+    proxy_no_cache $d2w_nocache;
+
+    add_header X-Cache $upstream_cache_status;
+
+    gzip on;
+    gzip_types text/plain text/xml text/css text/javascript
+        application/javascript application/x-javascript image/svg+xml;
+    gzip_min_length 2048;
+
+    error_log /var/log/nginx/proxy-error.log;
+
+    location / {
+        userid on;
+
+        limit_req zone=per_ihud burst=512 nodelay;
+        limit_conn per_ip 1024;
+    
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_cache_key $scheme$host$request_uri; # https://drv.tw != http://drv.tw
+        proxy_cache_revalidate on;
+        proxy_cache_use_stale error timeout
+                              http_429 http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;
+        proxy_cache_methods GET HEAD POST;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection ""; #"close";
+        proxy_set_header If-Modified-Since $http_if_modified_since;
+        proxy_set_header If-None-Match $http_if_none_match;
+        proxy_pass http://d2w_backend;
+        proxy_read_timeout 180;
+
+        access_log /var/log/nginx/proxy-access.log cache;
+    }
+
+    set $letsencrypt_test_thumbprint "S4QcCv3svrVcBhelvhWBeHmskRmz5XNC4rCbCVTbE7w" ;
+    set $letsencrypt_thumbprint "iVo1fYbnMmwH3WLaae0sYOdMa4oLuy31AAz9sK7G4p4" ;
+    set $acme_thumbprint $letsencrypt_thumbprint ;
+
+    location ~ "^/\.well-known/acme-challenge/([-_a-zA-Z0-9]+)$" {
+        default_type text/plain ;
+        return 200 "$1.$acme_thumbprint";
+    }
+
+    location /.well-known/acme-challenge/ {
+        default_type text/plain ;
+        if ( $http_referer ~ "^https://www\.drv\.tw/\.well-known/acme-challenge/([-_a-zA-Z0-9]+)$" ) {
+            return 200 "$1.$acme_thumbprint";
+        }
+    }
+
+    location /nginx_status {
+        stub_status on;
+        allow 127.0.0.1;
+        deny all;
+    }
+}

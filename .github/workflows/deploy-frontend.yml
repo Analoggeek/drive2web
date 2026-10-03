@@ -1,0 +1,80 @@
+name: Deploy frontend to Azure Static Web Apps
+
+# frontend/www.drv.tw is a static site; the backend (PHP) is deployed by hand.
+# Create the Static Web App in the Azure portal, then copy the generated
+# deployment token into the D2W_AZURE_DEPLOY_TOKEN repository secret.
+# Tests run on every push and pull request; deploy runs on push to main.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Syntax checks and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax-check every shipped .js file
+        run: |
+          set -e
+          for f in $(find frontend backend -name '*.js' \
+              -not -path '*/jq/*' -not -path '*/sd/*' -not -path '*/theme/*'); do
+            node --check "$f"
+            echo "ok $f"
+          done
+
+      - name: Test admin dashboard URL matcher
+        run: node tests/test-admin-regex.js
+
+      - name: Test edge functions with the local harness
+        run: node tests/test-lambda.js
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: PHP lint
+        run: |
+          for f in $(find backend -name '*.php' -not -path '*/PHPMailer/*'); do php -l "$f"; done
+
+      - name: Test PHP helper functions
+        run: php tests/run-tests.php
+
+      - name: Audit config logic and blacklist structure
+        run: |
+          php tools/d2w-audit.php --self-test
+          php tools/d2w-audit.php --quiet > audit.txt || true
+          cat audit.txt
+          if grep -q "ERROR  blacklist" audit.txt; then
+              echo "blacklist structural errors"; exit 1
+          fi
+
+      - name: Check the PHP/edge-function URL contract
+        run: python3 tests/check-edge-contract.py
+
+  deploy:
+    name: Deploy frontend
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.D2W_AZURE_DEPLOY_TOKEN }}
+          action: upload
+          app_location: 'frontend/www.drv.tw'
+          output_location: ''
+          skip_app_build: true

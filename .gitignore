@@ -1,0 +1,20 @@
+# Credentials - copy from drvtw_creds.example.php and fill in your values
+backend/html/drvtw_private/drvtw_creds.php
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+
+# Local settings
+*.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+
+# Your answers for the installer - can hold a DNS token and an OAuth secret
+install/config.env
